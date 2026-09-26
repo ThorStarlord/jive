@@ -361,7 +361,7 @@ function checkExpressions(body: GraphBody, base: string): void {
       if (def.stdin !== undefined && HEREDOC_PROGRAM.test(def.script) && !def.script.includes("JIVE_STDIN")) {
         throw new Error(`${GRAPH_VALIDATION_PREFIX}${path}/script feeds its program to the interpreter through a heredoc on stdin, which discards this node's stdin payload; use python3 -c, write the program to a file first, or read the payload from the file named by $JIVE_STDIN`);
       }
-    } else {
+    } else if (def.type === "jev") {
       (def.prepare ?? []).forEach((step, index) => expectExpression(step.input, `${path}/prepare/${index}/input`, "a string"));
       for (const [name, selection] of Object.entries(def.select ?? {})) {
         expectExpression(selection.from, `${path}/select/${name}/from`, "a collection");
