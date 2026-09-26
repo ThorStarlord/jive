@@ -44,6 +44,6 @@ export function hasSemanticContinuation(graph: Graph): boolean {
       if (visited.has(id) || !entries[id]) return false;
       return dependencies(entries[id]!).some(parent => consumesDecision(parent, new Set([...visited, id])));
     }
-    return Object.entries(body.nodes).some(([id, node]) => node.type === "bash" && consumesDecision(id));
+    return Object.entries(body.nodes).some(([id, node]) => node.type !== "jev" && consumesDecision(id));
   });
 }
