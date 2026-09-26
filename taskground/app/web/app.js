@@ -461,6 +461,7 @@
       ["Graphs", graphMetric(metrics)],
       ["Avg graph", decimalMetric(metrics, "avgGraphSize")],
       ["JEV calls", metric(metrics, "jevCalls")],
+      ["Synth calls", metric(metrics, "synthCalls")],
       ["JEV attempts", metric(metrics, "jevAttempts")],
       ["JEV retries", metric(metrics, "jevRetries")],
       ["Parallel now", metric(metrics, "currentParallelism")],
@@ -1021,7 +1022,7 @@
     }
     const charts = node("div", "charts");
     charts.append(
-      chartBlock(run.id, "activity", "Work activity", `Steps ${metric(metrics, "steps")} · JEV ${metric(metrics, "jevCalls")}`, [["steps", "#ad7cff"], ["jevCalls", "#52d29b"]]),
+      chartBlock(run.id, "activity", "Work activity", `Steps ${metric(metrics, "steps")} · JEV ${metric(metrics, "jevCalls")} · Synth ${metric(metrics, "synthCalls")}`, [["steps", "#ad7cff"], ["jevCalls", "#52d29b"], ["synthCalls", "#ffcc66"]]),
       chartBlock(run.id, "parallel", "Concurrency", `Peak ${metric(metrics, "peakParallelism")} · Avg ${decimalMetric(metrics, "avgParallelism")}`, [["active", "#58a6ff"]]),
     );
     panel.append(charts);
@@ -1039,7 +1040,7 @@
     canvas.setAttribute("aria-label", `${label} over time`);
     const legend = node("div", "chart-legend");
     for (const [key, color] of legendItems) {
-      const labelNode = node("span", "", key === "jevCalls" ? "JEV calls" : key);
+      const labelNode = node("span", "", key === "jevCalls" ? "JEV calls" : key === "synthCalls" ? "Synth calls" : key);
       labelNode.style.setProperty("--legend-color", color);
       legend.append(labelNode);
     }
@@ -1052,7 +1053,7 @@
       const run = state.details.get(canvas.dataset.chartRun) || state.runs.find((item) => item.id === canvas.dataset.chartRun);
       const series = run && run.metrics && Array.isArray(run.metrics.series) ? run.metrics.series : [];
       if (!series.length) continue;
-      const keys = canvas.dataset.chartKind === "parallel" ? [["active", "#58a6ff"]] : [["steps", "#ad7cff"], ["jevCalls", "#52d29b"]];
+      const keys = canvas.dataset.chartKind === "parallel" ? [["active", "#58a6ff"]] : [["steps", "#ad7cff"], ["jevCalls", "#52d29b"], ["synthCalls", "#ffcc66"]];
       drawLineChart(canvas, series, keys);
     }
   }
