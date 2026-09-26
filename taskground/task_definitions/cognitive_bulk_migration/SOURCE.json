@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "synthetic": true,
+  "adaptation": false,
+  "description": "Original synthetic Taskground workload for repository-scale bounded transformation and cognitive-allocation measurement.",
+  "generatedBy": "workspace/scripts/setup.py",
+  "rights": "CC0-1.0 style synthetic fixture; no third-party source content."
+}
