@@ -278,7 +278,7 @@ export async function executeGraph(input: unknown, options: ExecuteOptions): Pro
           ...(def.model ? { model: def.model } : {}),
           task,
           input,
-          outputFormat: def.outputFormat ?? "text" as const,
+          outputFormat: (def.outputFormat ?? "text") as "text" | "json",
           maxOutputTokens: def.maxOutputTokens ?? DEFAULT_SYNTH_MAX_OUTPUT_TOKENS,
           ...(def.effort ? { effort: def.effort } : {}),
         };
