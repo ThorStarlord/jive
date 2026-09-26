@@ -3,9 +3,9 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { executeGraph } from "../src/core/executor.ts";
-import type { JevAdapter } from "../src/core/types.ts";
+import type { JevAdapter, SynthAdapter } from "../src/core/types.ts";
 import { CRAWL_EXAMPLE, GRAPH_GUIDE, PLANNING_GUIDE, REFERENCE_EXAMPLE } from "../src/core/planner-guide.ts";
-import { BATCH_EXAMPLE, DETERMINISTIC_BRANCH_EXAMPLE, PARALLEL_READS_EXAMPLE, SEMANTIC_BRANCH_EXAMPLE } from "../src/core/planner-examples.ts";
+import { BATCH_EXAMPLE, DETERMINISTIC_BRANCH_EXAMPLE, PARALLEL_READS_EXAMPLE, SEMANTIC_BRANCH_EXAMPLE, SYNTH_VERIFICATION_EXAMPLE } from "../src/core/planner-examples.ts";
 import { dependencies, validateGraph } from "../src/core/schema.ts";
 import { PLANNER_SYSTEM_PROMPT } from "../src/planner/agent.ts";
 
@@ -13,7 +13,7 @@ describe("planner guide", () => {
   test("reference examples validate against the graph schema", () => {
     expect(() => validateGraph(structuredClone(REFERENCE_EXAMPLE))).not.toThrow();
     expect(() => validateGraph(structuredClone(CRAWL_EXAMPLE))).not.toThrow();
-    for (const graph of [PARALLEL_READS_EXAMPLE, DETERMINISTIC_BRANCH_EXAMPLE, SEMANTIC_BRANCH_EXAMPLE, BATCH_EXAMPLE]) {
+    for (const graph of [PARALLEL_READS_EXAMPLE, DETERMINISTIC_BRANCH_EXAMPLE, SEMANTIC_BRANCH_EXAMPLE, BATCH_EXAMPLE, SYNTH_VERIFICATION_EXAMPLE]) {
       expect(() => validateGraph(structuredClone(graph))).not.toThrow();
     }
   });
@@ -29,7 +29,7 @@ describe("planner guide", () => {
   test("the planner prompt leads with policy and carries executable examples", () => {
     expect(PLANNER_SYSTEM_PROMPT.indexOf(PLANNING_GUIDE)).toBeLessThan(PLANNER_SYSTEM_PROMPT.indexOf(GRAPH_GUIDE));
     expect(GRAPH_GUIDE).toContain(JSON.stringify(REFERENCE_EXAMPLE));
-    for (const graph of [PARALLEL_READS_EXAMPLE, DETERMINISTIC_BRANCH_EXAMPLE, SEMANTIC_BRANCH_EXAMPLE, BATCH_EXAMPLE]) {
+    for (const graph of [PARALLEL_READS_EXAMPLE, DETERMINISTIC_BRANCH_EXAMPLE, SEMANTIC_BRANCH_EXAMPLE, BATCH_EXAMPLE, SYNTH_VERIFICATION_EXAMPLE]) {
       expect(GRAPH_GUIDE).toContain(JSON.stringify(graph));
     }
   });
@@ -66,6 +66,26 @@ describe("crawl example execution", () => {
     const present = await executeGraph(DETERMINISTIC_BRANCH_EXAMPLE, { cwd, jev, trackFileChanges: false });
     expect((present.requested.cached!.output as any).stdout).toBe("cache");
     expect(present.requested.fallback!.status).toBe("skipped");
+  });
+
+  test("bounded synthesis receives explicit evidence and is verified deterministically", async () => {
+    const cwd = await workspace();
+    let calls = 0;
+    const synth: SynthAdapter = {
+      async generate(request) {
+        calls++;
+        expect(request.input).toEqual((SYNTH_VERIFICATION_EXAMPLE.context as any).target);
+        return {
+          model: "fixture/synth",
+          text: '{"replacement":"return modernCall(input);"}',
+          json: { replacement: "return modernCall(input);" },
+        };
+      },
+    };
+    const report = await executeGraph(SYNTH_VERIFICATION_EXAMPLE, { cwd, synth, trackFileChanges: false });
+    expect(report.status).toBe("done");
+    expect(calls).toBe(1);
+    expect((report.requested.verify!.output as any).json).toEqual({ ok: true, reason: "verified" });
   });
 
   test("semantic decisions execute only the chosen continuation, including unknowns", async () => {

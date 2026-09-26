@@ -33,10 +33,10 @@ const common = {
 
 const node = {
   type: "object",
-  description: "One executable node. type \"bash\" runs script in its own bash process; type \"jev\" asks Jev semantic questions over state. Fields marked bash-only or jev-only apply to that type.",
+  description: "One executable node. bash runs a shell command, jev makes a bounded semantic judgment, and synth performs bounded tool-less generation from explicit evidence. Type-specific fields apply only to their node type.",
   required: ["type"],
   properties: {
-    type: { type: "string", enum: ["bash", "jev"], description: "Node type. Exactly \"bash\" or \"jev\"." },
+    type: { type: "string", enum: ["bash", "jev", "synth"], description: "Node type. Exactly \"bash\", \"jev\", or \"synth\"." },
     ...common,
     script: { type: "string", description: "bash-only, required. Shell script text. Pass data in through env or stdin, never by pasting returned strings into the script." },
     cwd: { type: "string", description: "bash-only. Working directory for the script; defaults to the session directory." },
@@ -44,7 +44,7 @@ const node = {
     stdin: { description: `bash-only. Text or expression fed to standard input; a referenced array or object arrives as JSON. The same payload is saved to a file whose path is in $JIVE_STDIN, so a heredoc program can read it from there. ${REF_RULE}` },
     timeoutMs: { type: "integer", description: "bash-only. Timeout in milliseconds (1 to 3600000). Default 60000 (60 seconds), also bounded by the graph timeout." },
     acceptedExitCodes: { type: "array", items: { type: "integer" }, description: "bash-only. Exit codes that count as success. Defaults to [0]; use [0,1] for rg or a test run." },
-    outputFormat: { type: "string", enum: ["text", "json"], description: "bash-only. json additionally parses stdout into output.json." },
+    outputFormat: { type: "string", enum: ["text", "json"], description: "bash/synth. For bash, json parses stdout into output.json. For synth, json requires the model response to be one valid JSON value and exposes it as output.json." },
     state: { description: `jev-only, required. The evidence Jev reasons over: source, goal, constraints. ${REF_RULE}` },
     questions: {
       type: "object", description: `jev-only, required. Map of question ID to a question, or a $ref to a question map. IDs carry no meaning: instructions must give the complete question. ${REF_RULE}`,
@@ -75,6 +75,11 @@ const node = {
         },
       },
     },
+    task: { description: `synth-only, required. Bounded generation objective. May reference prior graph outputs. ${REF_RULE}` },
+    input: { description: `synth-only, required. Explicit evidence/context supplied to the generator; synth has no tools or independent repository access. ${REF_RULE}` },
+    model: { type: "string", description: "synth-only. Optional OpenRouter model ID; defaults to JIVE_SYNTH_MODEL or the runtime default." },
+    effort: { type: "string", description: "synth-only. Optional reasoning effort supported by the selected model." },
+    maxOutputTokens: { type: "integer", description: "synth-only. Output-token ceiling, 1 to 32768. Default 4096." },
     select: {
       type: "object",
       description: "jev-only. Map of NAME to {from,key}: after acceptance, pick the original value at from[key] and expose it as output.selected/NAME.",
@@ -124,7 +129,7 @@ const body = {
 
 export const graphToolParameters: Record<string, unknown> = {
   type: "object",
-  description: "A declarative graph of bash and Jev nodes. Execution starts as complete nodes arrive. Write version, label and any context/templates/limits/output before nodes/groups; omitted settings use defaults. Emit nodes/groups in dependency order. returns may come last.",
+  description: "A declarative graph of bash, Jev, and bounded synth nodes. Execution starts as complete nodes arrive. Write version, label and any context/templates/limits/output before nodes/groups; omitted settings use defaults. Emit nodes/groups in dependency order. returns may come last.",
   required: ["version", "label", "nodes"],
   properties: {
     version: { type: "integer", enum: [1], description: "Contract version. Always the JSON number 1, never the string \"1\"." },
@@ -138,6 +143,7 @@ export const graphToolParameters: Record<string, unknown> = {
         concurrency: { type: "integer", description: "1 to 32. Default 6 concurrent leaf nodes." },
         timeoutMs: { type: "integer", description: "1 to 3600000. Default 300000 (5 minutes), starting when execution begins." },
         maxJevCalls: { type: "integer", description: "0 to 1000. Default 100. 0 declares a graph with no Jev nodes." },
+        maxSynthCalls: { type: "integer", description: "0 to 1000. Default 100. 0 declares a graph with no synth nodes." },
       },
     },
     output: { description: "Optional small typed result resolved from root references." },

@@ -10,6 +10,9 @@ multi-step fixes.
 
 - **One tool, whole plans.** The planner has `execute_graph` and
   `execute_graph_mod`; everything else is expressed inside the graph.
+- **Cognitive delegation.** Deterministic work stays in Bash/extractors, bounded
+  semantic judgments use Jev, and bounded generation uses tool-less Synth nodes;
+  novel strategy and architecture return to the planner.
 - **Execution overlaps generation.** Nodes start as soon as their definition
   has streamed in, while the planner is still writing the rest.
 - **Bounded semantic decisions.** `jev` nodes ask the [Jev](https://typesafe.ai)
@@ -79,10 +82,12 @@ jive --prefill "Find where request retries are configured and explain the policy
 jive --headless --prompt "Run the tests and summarise failures"
 ```
 
-`OPENROUTER_API_KEY` is required. `JEV_API_TOKEN` is needed only for graphs
-that use `jev` decision nodes; bash-only graphs run without it. Defaults are
-`google/gemini-3.8-flash` for planning and `jev-1.13.0` for decisions, both
-overridable with `OPENROUTER_MODEL` and `JEV_MODEL`.
+`OPENROUTER_API_KEY` is required for the planner and for `synth` nodes.
+`JEV_API_TOKEN` is needed only for graphs that use `jev` decision nodes;
+bash-only graphs run without either remote decision primitive. Defaults are
+`google/gemini-3.8-flash` for planning, `deepseek/deepseek-v4-flash` for
+bounded synthesis, and `jev-1.13.0` for decisions. Override them with
+`OPENROUTER_MODEL`, `JIVE_SYNTH_MODEL`, and `JEV_MODEL`.
 
 The UI has a bottom composer, a conversation that grows upward, and live graph
 rows that turn green as nodes finish. Type `/` for commands (`/model`,
@@ -92,9 +97,10 @@ to read the planner's reasoning. The full reference is in
 
 ## How it works
 
-Each planner turn can submit a graph. Executable nodes are `bash` and `jev`;
-`foreach` and `repeat` groups instantiate templates for parallel expansion and
-bounded loops. References are JSON pointers, so a node can consume another
+Each planner turn can submit a graph. Executable nodes are `bash`, `jev`, and
+`synth`; `foreach` and `repeat` groups instantiate templates for parallel
+expansion and bounded loops. Synth is deliberately tool-less: it can generate
+from supplied evidence but cannot inspect the repository independently. References are JSON pointers, so a node can consume another
 node's stdout, parsed JSON, or a Jev answer without any glue code:
 
 ```json
@@ -120,7 +126,7 @@ Every Jev node declares `accept`, a predicate over the returned answers; a false
 predicate yields control back to the planner with the evidence preserved.
 
 Graphs are validated against a JSON Schema (`jive --schema`) and executed with
-graph-wide limits on concurrency, time, and Jev calls. See
+graph-wide limits on concurrency, time, Jev calls, and Synth calls. See
 [docs/GRAPH_CONTRACT.md](GRAPH_CONTRACT.md) for the complete semantics and
 [examples/](../examples/) for runnable graphs:
 
@@ -177,6 +183,7 @@ and the [planner evaluation guide](../evals/planner/README.md).
 
 - [docs/USAGE.md](USAGE.md): interface, sessions, headless commands, skills, extractors
 - [docs/GRAPH_CONTRACT.md](GRAPH_CONTRACT.md): the graph language the planner writes
+- [docs/COGNITIVE_DELEGATION.md](COGNITIVE_DELEGATION.md): cognitive responsibilities and escalation rules
 - [docs/CONTEXT.md](CONTEXT.md): planner context, compaction, and Jev input limits
 - [DESIGN.md](../DESIGN.md): architecture and confirmed design decisions
 

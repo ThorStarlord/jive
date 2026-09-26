@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { version } from "../../package.json";
-import { DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_GRAPH_LIMITS, DEFAULT_JEV_MODEL, PLANNER_CONTRACT_VERSION } from "../core/runtime-contract.ts";
+import { DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_GRAPH_LIMITS, DEFAULT_JEV_MODEL, DEFAULT_SYNTH_MODEL, PLANNER_CONTRACT_VERSION } from "../core/runtime-contract.ts";
 
 /** Only explicitly selected capabilities belong here. Never serialize the environment. */
 export function runtimeContext(cwd: string, demo = false, env: NodeJS.ProcessEnv = process.env) {
@@ -13,6 +13,12 @@ export function runtimeContext(cwd: string, demo = false, env: NodeJS.ProcessEnv
       credentialsConfigured: demo || Boolean(env.JEV_API_TOKEN || env.TYPESAFE_API_KEY),
       model: demo ? "fixture" : env.JEV_MODEL ?? DEFAULT_JEV_MODEL,
       availability: demo ? "local fixture" : "Configuration only; service availability is established by task calls.",
+    },
+    synth: {
+      mode: demo ? "unavailable" : "remote",
+      credentialsConfigured: Boolean(env.OPENROUTER_API_KEY),
+      defaultModel: env.JIVE_SYNTH_MODEL ?? DEFAULT_SYNTH_MODEL,
+      contract: "Tool-less bounded generation from task+input supplied by the graph; no repository exploration.",
     },
     defaultGraphLimits: DEFAULT_GRAPH_LIMITS,
     execution: { parallelNodes: true, serialToolInvocations: true, streamingGraphs: true },

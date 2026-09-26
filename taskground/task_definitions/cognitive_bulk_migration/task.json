@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "cognitive_bulk_migration",
+  "title": "Migrate a family of event adapters",
+  "description": "Migrate 24 independent event adapters from broken legacy stubs to their local natural-language contracts, preserving behavior under held-out cases.",
+  "estimatedCalls": 24,
+  "setup": [
+    "python3",
+    "{workspace}/scripts/setup.py"
+  ],
+  "verify": [
+    "python3",
+    "{definition}/verifier/verify.py"
+  ]
+}

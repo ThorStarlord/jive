@@ -10,6 +10,8 @@
  *   edge.ready      data: { from, to }
  *   jev.request     nodeId, data: { state, questions, model? }
  *   jev.response    nodeId, data: { answers, model?, usage? }
+ *   synth.request   nodeId, data: { task, input, model?, maxOutputTokens }
+ *   synth.response  nodeId, data: { text, json?, model, provider?, usage? }
  *   plugin.activity nodeId, data: { message?|activity?|name?, ... }
  *   graph.finished  data: { status?, reason?, report?, changes?: FileChangeSummary }
  *
@@ -68,6 +70,8 @@ export interface GraphNode {
   output: string;
   jevRequests: Array<{ time: number; data: Record<string, unknown> }>;
   jevResponses: Array<{ time: number; data: Record<string, unknown> }>;
+  synthRequests: Array<{ time: number; data: Record<string, unknown> }>;
+  synthResponses: Array<{ time: number; data: Record<string, unknown> }>;
   activity: Array<{ time: number; data: Record<string, unknown> }>;
 }
 
@@ -139,7 +143,7 @@ function fileChanges(value: unknown): FileChangeSummary | undefined {
 }
 
 function nodeType(v: unknown): GraphNodeType {
-  return v === "bash" || v === "jev" || v === "foreach" || v === "repeat" ? v : "unknown";
+  return v === "bash" || v === "jev" || v === "synth" || v === "foreach" || v === "repeat" ? v : "unknown";
 }
 
 /**
@@ -193,6 +197,8 @@ function ensureNode(g: GraphModel, id: string, ev: UIExecutionEvent, data: Recor
       output: "",
       jevRequests: [],
       jevResponses: [],
+      synthRequests: [],
+      synthResponses: [],
       activity: [],
     };
     n.iteration = num(data.iteration) ?? parseIteration(id, n.parent);
@@ -409,6 +415,16 @@ export function reduceGraphs(events: readonly (ExecutionEvent | UIExecutionEvent
       case "jev.response": {
         if (!ev.nodeId) break;
         ensureNode(g, ev.nodeId, ev, data).jevResponses.push({ time: ev.time, data });
+        break;
+      }
+      case "synth.request": {
+        if (!ev.nodeId) break;
+        ensureNode(g, ev.nodeId, ev, data).synthRequests.push({ time: ev.time, data });
+        break;
+      }
+      case "synth.response": {
+        if (!ev.nodeId) break;
+        ensureNode(g, ev.nodeId, ev, data).synthResponses.push({ time: ev.time, data });
         break;
       }
       case "plugin.activity": {

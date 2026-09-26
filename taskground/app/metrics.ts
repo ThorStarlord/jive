@@ -7,6 +7,7 @@ export interface RunMetricPoint {
   active: number;
   steps: number;
   jevCalls: number;
+  synthCalls: number;
 }
 
 export interface RunMetrics {
@@ -18,6 +19,9 @@ export interface RunMetrics {
   graphsFailed: number | null;
   avgGraphSize: number | null;
   jevCalls: number | null;
+  synthCalls: number | null;
+  synthPromptTokens: number | null;
+  synthCompletionTokens: number | null;
   jevAttempts: number | null;
   jevRetries: number | null;
   currentParallelism: number | null;
@@ -40,7 +44,7 @@ export interface AggregateOptions {
 }
 
 type JsonRecord = Record<string, any>;
-type LeafType = "bash" | "jev";
+type LeafType = "bash" | "jev" | "synth";
 type EventSource = "session" | "raw";
 
 interface GraphState {
@@ -89,7 +93,7 @@ function maxDefined(a: number | undefined, b: number | undefined): number | unde
   return Math.max(a, b);
 }
 
-function leaf(type: unknown): type is LeafType { return type === "bash" || type === "jev"; }
+function leaf(type: unknown): type is LeafType { return type === "bash" || type === "jev" || type === "synth"; }
 
 class MetricReducer {
   readonly executionKeys = new Set<string>();
@@ -99,6 +103,8 @@ class MetricReducer {
   readonly groupTypes = new Map<string, string>();
   readonly sessionGraphs = new Set<string>();
   readonly jevRequests: Array<{ graphId: string; source: EventSource; time: number }> = [];
+  readonly synthRequests: Array<{ graphId: string; source: EventSource; time: number }> = [];
+  readonly synthUsage: Array<{ graphId: string; source: EventSource; time: number; promptTokens: number; completionTokens: number }> = [];
   plannerTurns = 0;
   jevAttempts = 0;
   jevRetries = 0;
@@ -139,7 +145,7 @@ class MetricReducer {
     this.lastEventAt = maxDefined(this.lastEventAt, eventTime);
     const relevant = event.type === "graph.started" || event.type === "graph.finished" ||
       event.type === "node.created" || event.type === "node.started" || event.type === "node.finished" ||
-      event.type === "jev.request";
+      event.type === "jev.request" || event.type === "synth.request" || event.type === "synth.response";
     if (!relevant) return;
     // Once the durable session has the runtime's graph.started event, its remapped sequence space
     // is authoritative for that graph. Raw events remain retained solely as a fallback.
@@ -173,6 +179,21 @@ class MetricReducer {
     }
     if (event.type === "jev.request") {
       if (eventTime !== undefined) this.jevRequests.push({ graphId: event.graphId, source, time: eventTime });
+      return;
+    }
+    if (event.type === "synth.request") {
+      if (eventTime !== undefined) this.synthRequests.push({ graphId: event.graphId, source, time: eventTime });
+      return;
+    }
+    if (event.type === "synth.response") {
+      const usage = record(event.data?.usage) ? event.data.usage : undefined;
+      const promptTokens = finite(usage?.promptTokens), completionTokens = finite(usage?.completionTokens);
+      if (eventTime !== undefined && (promptTokens !== undefined || completionTokens !== undefined)) {
+        this.synthUsage.push({
+          graphId: event.graphId, source, time: eventTime,
+          promptTokens: promptTokens ?? 0, completionTokens: completionTokens ?? 0,
+        });
+      }
       return;
     }
     if (typeof event.nodeId !== "string") return;
@@ -232,7 +253,14 @@ class MetricReducer {
     const jevRequestTimes = this.jevRequests
       .filter(request => selected(request.graphId, request.source) && request.time <= boundary)
       .map(request => request.time);
-    const series = metricSeries(graphIntervals, nodeIntervals, jevRequestTimes);
+    const synthRequestTimes = this.synthRequests
+      .filter(request => selected(request.graphId, request.source) && request.time <= boundary)
+      .map(request => request.time);
+    const selectedSynthUsage = this.synthUsage.filter(usage =>
+      selected(usage.graphId, usage.source) && usage.time <= boundary);
+    const synthPromptTokens = selectedSynthUsage.reduce((sum, usage) => sum + usage.promptTokens, 0);
+    const synthCompletionTokens = selectedSynthUsage.reduce((sum, usage) => sum + usage.completionTokens, 0);
+    const series = metricSeries(graphIntervals, nodeIntervals, jevRequestTimes, synthRequestTimes);
     const available = this.executionAvailable;
     const telemetry = options.attemptTelemetryAvailable || this.attemptTelemetryAvailable;
 
@@ -245,6 +273,9 @@ class MetricReducer {
       graphsFailed: available ? failed : null,
       avgGraphSize: graphSizes.length ? graphSizes.reduce((sum, size) => sum + size, 0) / graphSizes.length : null,
       jevCalls: available ? jevRequestTimes.length : null,
+      synthCalls: available ? synthRequestTimes.length : null,
+      synthPromptTokens: available ? synthPromptTokens : null,
+      synthCompletionTokens: available ? synthCompletionTokens : null,
       jevAttempts: telemetry ? this.jevAttempts : null,
       jevRetries: telemetry ? this.jevRetries : null,
       currentParallelism: available ? current : null,
@@ -316,26 +347,28 @@ function metricSeries(
   graphIntervals: Array<{ start: number; end: number }>,
   nodeIntervals: Array<{ start: number; end: number; open?: boolean }>,
   jevTimes: number[],
+  synthTimes: number[],
 ): RunMetricPoint[] {
-  const changes = new Map<number, { active: number; steps: number; calls: number }>();
-  const add = (time: number, active: number, steps: number, calls: number) => {
-    const change = changes.get(time) ?? { active: 0, steps: 0, calls: 0 };
-    change.active += active; change.steps += steps; change.calls += calls;
+  const changes = new Map<number, { active: number; steps: number; jev: number; synth: number }>();
+  const add = (time: number, active: number, steps: number, jev: number, synth: number) => {
+    const change = changes.get(time) ?? { active: 0, steps: 0, jev: 0, synth: 0 };
+    change.active += active; change.steps += steps; change.jev += jev; change.synth += synth;
     changes.set(time, change);
   };
   for (const interval of graphIntervals) {
-    add(interval.start, 0, 0, 0);
-    add(interval.end, 0, 0, 0);
+    add(interval.start, 0, 0, 0, 0);
+    add(interval.end, 0, 0, 0, 0);
   }
   for (const interval of nodeIntervals) {
-    add(interval.start, 1, 1, 0);
-    if (!interval.open) add(interval.end, -1, 0, 0);
+    add(interval.start, 1, 1, 0, 0);
+    if (!interval.open) add(interval.end, -1, 0, 0, 0);
   }
-  for (const time of jevTimes) add(time, 0, 0, 1);
-  let active = 0, steps = 0, calls = 0;
+  for (const time of jevTimes) add(time, 0, 0, 1, 0);
+  for (const time of synthTimes) add(time, 0, 0, 0, 1);
+  let active = 0, steps = 0, jevCalls = 0, synthCalls = 0;
   const all = [...changes].sort(([a], [b]) => a - b).map(([time, change]) => {
-    active += change.active; steps += change.steps; calls += change.calls;
-    return { time, active: Math.max(0, active), steps, jevCalls: calls };
+    active += change.active; steps += change.steps; jevCalls += change.jev; synthCalls += change.synth;
+    return { time, active: Math.max(0, active), steps, jevCalls, synthCalls };
   });
   if (all.length <= 256) return all;
   const sampled = [all[0]!];
@@ -449,7 +482,7 @@ class NativeReducer {
       elapsedMs, plannerTurns: this.available ? this.plannerTurns : null,
       steps: this.available ? this.steps.size : null,
       graphsStarted: null, graphsCompleted: null, graphsFailed: null, avgGraphSize: null,
-      jevCalls: null, jevAttempts: null, jevRetries: null,
+      jevCalls: null, synthCalls: null, synthPromptTokens: null, synthCompletionTokens: null, jevAttempts: null, jevRetries: null,
       currentParallelism: null, peakParallelism: null, avgParallelism: null,
       repeatIterations: null, foreachItems: null, lastEventAt: this.lastEventAt ?? null,
       series: [], available: this.available,

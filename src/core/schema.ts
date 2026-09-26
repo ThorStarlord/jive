@@ -17,6 +17,7 @@ export const graphSchema: Record<string, any> = {
     limits: { type: "object", additionalProperties: false, properties: {
       concurrency: { ...positive, maximum: 32 },
       timeoutMs: { ...positive, maximum: 3600000 }, maxJevCalls: { type: "integer", minimum: 0, maximum: 1000 },
+      maxSynthCalls: { type: "integer", minimum: 0, maximum: 1000 },
     } },
   },
   $defs: {
@@ -37,6 +38,13 @@ export const graphSchema: Record<string, any> = {
           use: { type: "string", minLength: 1 }, as: { type: "string", pattern: "^[a-zA-Z][a-zA-Z0-9_-]*$" }, input: {}, config: {},
         } } },
         select: { type: "object", additionalProperties: { type: "object", additionalProperties: false, required: ["from", "key"], properties: { from: {}, key: {} } } },
+      } },
+      { type: "object", additionalProperties: false, required: ["type", "task", "input"], properties: {
+        ...common, type: { const: "synth" }, task: {}, input: {},
+        model: { type: "string", minLength: 1, maxLength: 200 },
+        effort: { type: "string", minLength: 1, maxLength: 32 },
+        outputFormat: { enum: ["text", "json"] },
+        maxOutputTokens: { ...positive, maximum: 32768 },
       } },
     ] } },
     groups: { type: "object", maxProperties: 100, propertyNames: { pattern: "^[a-zA-Z][a-zA-Z0-9_-]*$" }, additionalProperties: { oneOf: [
@@ -100,7 +108,7 @@ export function describeValue(value: unknown): string {
 }
 
 const DISCRIMINATORS: Array<{ parent: string; key: "type" | "kind"; options: string[] }> = [
-  { parent: "nodes", key: "type", options: ["bash", "jev"] },
+  { parent: "nodes", key: "type", options: ["bash", "jev", "synth"] },
   { parent: "groups", key: "kind", options: ["foreach", "repeat"] },
 ];
 
@@ -174,7 +182,7 @@ export function strayEntryTarget(key: string, value: unknown): "nodes" | "groups
   if (ROOT_FIELDS.has(key) || !ENTRY_ID.test(key)) return undefined;
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const entry = value as Record<string, unknown>;
-  if (entry.type === "bash" || entry.type === "jev") return "nodes";
+  if (entry.type === "bash" || entry.type === "jev" || entry.type === "synth") return "nodes";
   if (entry.kind === "foreach" || entry.kind === "repeat") return "groups";
   return undefined;
 }
@@ -318,7 +326,7 @@ export function repairGraph(value: unknown): { value: unknown; repairs: string[]
 
 export const GRAPH_VALIDATION_PREFIX = "Invalid graph: ";
 /** Shown to the planner alongside every schema rejection so it can resubmit without guessing. */
-export const GRAPH_VALIDATION_HINT = "The graph was rejected before anything ran. Fix the listed paths: when the result carries a graphId, call execute_graph_mod with that base and only the edits; otherwise resubmit the whole graph. version is the JSON number 1 (not the string \"1\"); nodes, groups, templates and context are JSON objects (not JSON-encoded strings); returns, limits, context and templates are siblings of nodes, not entries inside it, and every node or group definition lives inside the nodes or groups map, not beside it; every node has type \"bash\" or \"jev\"; a reference is an object whose only key is $ref, such as {\"$ref\": \"/nodes/ID/output/stdout\"}.";
+export const GRAPH_VALIDATION_HINT = "The graph was rejected before anything ran. Fix the listed paths: when the result carries a graphId, call execute_graph_mod with that base and only the edits; otherwise resubmit the whole graph. version is the JSON number 1 (not the string \"1\"); nodes, groups, templates and context are JSON objects (not JSON-encoded strings); returns, limits, context and templates are siblings of nodes, not entries inside it, and every node or group definition lives inside the nodes or groups map, not beside it; every node has type \"bash\", \"jev\", or \"synth\"; a reference is an object whose only key is $ref, such as {\"$ref\": \"/nodes/ID/output/stdout\"}.";
 export const MINIMAL_GRAPH_EXAMPLE: Graph = { version: 1, label: "List files", nodes: { list: { type: "bash", script: "ls -la" } }, returns: ["list"] };
 
 /** An interpreter reading its program from a heredoc on stdin, which displaces the node's stdin payload. */
@@ -353,7 +361,7 @@ function checkExpressions(body: GraphBody, base: string): void {
       if (def.stdin !== undefined && HEREDOC_PROGRAM.test(def.script) && !def.script.includes("JIVE_STDIN")) {
         throw new Error(`${GRAPH_VALIDATION_PREFIX}${path}/script feeds its program to the interpreter through a heredoc on stdin, which discards this node's stdin payload; use python3 -c, write the program to a file first, or read the payload from the file named by $JIVE_STDIN`);
       }
-    } else {
+    } else if (def.type === "jev") {
       (def.prepare ?? []).forEach((step, index) => expectExpression(step.input, `${path}/prepare/${index}/input`, "a string"));
       for (const [name, selection] of Object.entries(def.select ?? {})) {
         expectExpression(selection.from, `${path}/select/${name}/from`, "a collection");

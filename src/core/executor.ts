@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { appendFileSync } from "node:fs";
-import { join, resolve as pathResolve } from "node:path";
+import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { dependencies, validateGraph } from "./schema";
 import { resolve, evaluate } from "./expressions";
@@ -9,8 +9,10 @@ import { runCommand, type CommandResult } from "./process";
 import { changesSince, snapshotWorkingTree } from "./file-changes";
 import { ExtractorRegistry } from "../plugins/registry";
 import { JevAnswerError, JevClient, validateAnswer, validateQuestions } from "../jev/client";
-import { DEFAULT_GRAPH_LIMITS } from "./runtime-contract.ts";
-import type { ExecutionEvent, Graph, GraphBody, GraphReport, Group, JevAdapter, JevResponse, Limits, Node, NodeResult } from "./types";
+import { OpenRouterSynthClient } from "../synth/client.ts";
+import { DEFAULT_GRAPH_LIMITS, DEFAULT_SYNTH_MAX_OUTPUT_TOKENS, MAX_SYNTH_INPUT_TOKENS } from "./runtime-contract.ts";
+import { resolveWithinWorkspace } from "./security.ts";
+import type { ExecutionEvent, Graph, GraphBody, GraphReport, Group, JevAdapter, JevResponse, Limits, Node, NodeResult, SynthAdapter, SynthResponse } from "./types";
 
 class Semaphore {
   private used = 0;
@@ -30,6 +32,14 @@ class Semaphore {
   }
   private release() { const next = this.queue.shift(); if (next) next(); else this.used--; }
 }
+export interface NodeAuthorizationRequest {
+  graphId: string;
+  nodeId: string;
+  label: string;
+  type: Node["type"];
+  cwd: string;
+  definition: Node;
+}
 export interface ExecuteOptions {
   cwd: string;
   graphId?: string;
@@ -37,7 +47,10 @@ export interface ExecuteOptions {
   updates?: AsyncIterable<Graph>;
   artifactRoot?: string;
   jev?: JevAdapter;
+  synth?: SynthAdapter;
   plugins?: ExtractorRegistry;
+  /** Optional host policy hook. Throw/reject to deny a leaf before any side effect or remote call begins. */
+  authorize?: (request: NodeAuthorizationRequest) => void | Promise<void>;
   signal?: AbortSignal;
   onEvent?: (event: ExecutionEvent) => void;
   /** Report the working-tree files the run changed on graph.finished. On by default. */
@@ -70,7 +83,8 @@ export async function executeGraph(input: unknown, options: ExecuteOptions): Pro
   const records = new Map<string, NodeResult>();
   const plugins = options.plugins ?? await ExtractorRegistry.load(options.cwd);
   const jev = options.jev ?? new JevClient();
-  let sequence = 0, jevCalls = 0;
+  const synth = options.synth ?? new OpenRouterSynthClient();
+  let sequence = 0, jevCalls = 0, synthCalls = 0;
   let stoppingReason: string | undefined;
   const emit = (type: ExecutionEvent["type"], data: Record<string, unknown>, nodeId?: string) => {
     const event: ExecutionEvent = { sequence: ++sequence, time: Date.now(), graphId, type, nodeId, data };
@@ -188,6 +202,16 @@ export async function executeGraph(input: unknown, options: ExecuteOptions): Pro
     return outcome;
   }
   async function leaf(def: Node, result: NodeResult, scope: Record<string, unknown>) {
+    const cwd = def.type === "bash" && def.cwd ? resolveWithinWorkspace(options.cwd, def.cwd) : options.cwd;
+    await options.authorize?.({
+      graphId,
+      nodeId: result.id,
+      label: result.label,
+      type: def.type,
+      cwd,
+      definition: structuredClone(def),
+    });
+    signal.throwIfAborted();
     const release = await semaphore.acquire(signal);
     try {
       result.status = "running"; result.startedAt = Date.now();
@@ -199,7 +223,7 @@ export async function executeGraph(input: unknown, options: ExecuteOptions): Pro
           return [name, String(resolved)];
         }));
         const stdin = resolve(def.stdin, scope);
-        result.output = await runCommand({ script: def.script, cwd: def.cwd ? pathResolve(options.cwd, def.cwd) : options.cwd, env,
+        result.output = await runCommand({ script: def.script, cwd, env,
           stdin: stdin === undefined ? undefined : typeof stdin === "string" ? stdin : JSON.stringify(stdin), signal, timeoutMs: def.timeoutMs,
           outputPrefix: join(directory, `command-${encodeURIComponent(result.id)}`),
           onOutput: (stream, chunk) => emit("node.output", { stream, chunk: chunk.slice(0, 4000), omittedCharacters: Math.max(0, chunk.length - 4000) }, result.id),
@@ -210,7 +234,7 @@ export async function executeGraph(input: unknown, options: ExecuteOptions): Pro
           if (output.stdoutTruncated) throw new Error("JSON output exceeds inline capture size; narrow the producer output");
           output.json = JSON.parse(output.stdout);
         }
-      } else {
+      } else if (def.type === "jev") {
         const prepared: Record<string, unknown> = Object.create(null);
         const local = { ...scope, prepared };
         for (const step of def.prepare ?? []) {
@@ -246,6 +270,36 @@ export async function executeGraph(input: unknown, options: ExecuteOptions): Pro
           selected[name] = from[key];
         }
         result.output = { ...answer, prepared, selected };
+      } else {
+        const task = resolve(def.task, scope);
+        if (typeof task !== "string" || !task.trim()) throw new Error("synth task must resolve to a non-empty string");
+        const input = resolve(def.input, scope);
+        const request = {
+          ...(def.model ? { model: def.model } : {}),
+          task,
+          input,
+          outputFormat: (def.outputFormat ?? "text") as "text" | "json",
+          maxOutputTokens: def.maxOutputTokens ?? DEFAULT_SYNTH_MAX_OUTPUT_TOKENS,
+          ...(def.effort ? { effort: def.effort } : {}),
+        };
+        if (++synthCalls > limits.maxSynthCalls) {
+          stop(`Synthesis request budget (${limits.maxSynthCalls}) exhausted`);
+          throw new Error(stoppingReason);
+        }
+        const estimatedInputTokens = Math.ceil(JSON.stringify({ task, input }).length / 3);
+        if (estimatedInputTokens > MAX_SYNTH_INPUT_TOKENS) {
+          throw new Error(`Estimated synth input exceeds ${MAX_SYNTH_INPUT_TOKENS} tokens; narrow the evidence before synthesis`);
+        }
+        emit("synth.request", { ...request, estimatedInputTokens }, result.id);
+        let answer: SynthResponse;
+        try {
+          answer = await synth.generate(request, signal);
+        } catch (error) {
+          emit("synth.response", { error: error instanceof Error ? error.message : String(error) }, result.id);
+          throw error;
+        }
+        emit("synth.response", { ...answer }, result.id);
+        result.output = answer;
       }
     } finally { release(); }
   }

@@ -242,6 +242,27 @@ describe("OpenRouter planner", () => {
     expect(result.usage.cachedTokens).toBe(75);
   });
 
+  test("tool-less bounded completions omit tool authority and honor the output ceiling", async () => {
+    let body: Record<string, any> | undefined;
+    const client = new OpenRouterClient({
+      apiKey: "test-key",
+      fetch: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        body = JSON.parse(String(init?.body));
+        return answerResponse();
+      }) as unknown as typeof fetch,
+    });
+    const result = await client.complete({
+      model: "test/model",
+      sessionId: "bounded-synth",
+      messages: [{ role: "user", content: "write one line" }],
+      maxTokens: 321,
+    });
+    expect(result.message.content).toBe("All done.");
+    expect(body).not.toHaveProperty("tools");
+    expect(body).not.toHaveProperty("tool_choice");
+    expect(body?.max_tokens).toBe(321);
+  });
+
   test("controller executes a streamed graph once and preserves reasoning in the tool round", async () => {
     const cwd = await makeCwd();
     const requestBodies: Array<Record<string, any>> = [];

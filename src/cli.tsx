@@ -45,8 +45,9 @@ Interactive commands: /resume [ID], /sessions, /name TEXT, /rename TEXT,
 The agent works in the current directory: AGENTS.md, .jev/extractors and
 .jev/sessions are read and written there. Override with --cwd DIR.
 See README.md for keys.
-Credentials: OPENROUTER_API_KEY and JEV_API_TOKEN, from .env in the working
-directory (searched upward) or the jive checkout. Install: see README.md.
+Credentials: OPENROUTER_API_KEY (planner + synth) and JEV_API_TOKEN (jev), from
+.env in the working directory (searched upward) or the jive checkout. Synth model:
+JIVE_SYNTH_MODEL (optional). Install: see README.md.
 `);return;}
   if(values.prefill!==undefined && (values.headless || values.run || values.prompt!==undefined || positionals.length))throw new Error("--prefill is interactive-only and cannot be combined with --prompt, positional prompts, --headless, or --run");
   if(values.schema){console.log(JSON.stringify(graphSchema,null,2));return;}

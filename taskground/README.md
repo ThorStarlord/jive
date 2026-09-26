@@ -14,6 +14,7 @@ bun run taskground run search_latency --agent jive
 bun run taskground run async_blocking_audit --agent jive
 bun run taskground run error_handling_audit --agent jive
 bun run taskground run retry_audit --agent jive
+bun run taskground run cognitive_bulk_migration --agent jive
 ```
 
 Run `npm install --no-package-lock` first if dependencies are absent. If Bun is not
@@ -114,16 +115,24 @@ selection mode and source hash; later source edits affect only subsequent runs.
 ### Metrics
 
 Metrics are derived from saved events and work for live runs and retained history.
-`status RUN_ID --json` also includes them. Jive reports planner requests, executed
-Bash/Jev steps, graph outcomes, average executed leaf nodes per finished graph,
-logical Jev evaluations and instrumented HTTP attempts/retries, active/peak/average
-concurrency, repeat iterations and foreach items. Average concurrency is weighted by
+`status RUN_ID --json` also includes them. Jive reports planner requests, executed Bash/Jev/Synth steps, graph outcomes,
+average executed leaf nodes per finished graph, logical Jev evaluations and
+instrumented HTTP attempts/retries, Synth calls and prompt/output token usage, active/peak/average concurrency,
+repeat iterations and foreach items. Average concurrency is weighted by
 time over graph execution, excluding planner waiting and loop container nodes.
 Streaming graph wrappers are not separate executions. Runtime excludes preparation
 and grading. These counters show activity, not an estimated percentage complete.
 Codex/Claude expose turns and tool operations where their event logs provide them;
 Jive-only metrics and unavailable historical telemetry are shown as unavailable.
 Native Codex/Claude terminal screens are not parsed into structured task metrics.
+
+For Cognitive Delegation work, interpret planner turns, Jev calls, and Synth calls
+as separate cognitive allocations rather than interchangeable "LLM calls". A good
+result is not merely fewer calls: correctness/verification must hold while
+transformation volume grows without frontier-planner work growing proportionally.
+Future retained metrics should add planner token usage, verification pass rate,
+and frontier escalations per completed transformation. Synth prompt/output usage
+is retained directly from each bounded generation response.
 
 ### Optional video recording
 
@@ -191,6 +200,7 @@ taskground/
 | `intent_routing` | 154 test requests across 77 intents; labeled examples supplied for reference | 154 |
 | `conversation_eval` | Three dev rounds of 20 responses + 10 pairs, then 40 test responses + 20 pairs | 150 |
 | `slow_trace_search` | Profile and optimize a local Python trace-query engine; same-machine performance and held-out correctness checks | 0 |
+| `cognitive_bulk_migration` | Migrate 24 independent natural-language adapter contracts with held-out behavior checks; useful for cognitive-allocation comparisons | ~24 |
 | `search_latency` | Profile recurring, exploratory, and ingesting search traffic; choose experiments and reassess residual bottlenecks | ~12 (investigation-dependent) |
 | `search_results_race` | Debug a local browser search client; deterministic response-order checks and browser evidence | 0 |
 | `async_blocking_audit` | Explore a historical Home Assistant snapshot for blocking calls reachable from the event loop | Investigation-dependent |
@@ -198,6 +208,9 @@ taskground/
 | `retry_audit` | Audit retry behavior in a pinned Airflow source subset, separating defective retries from polling and valid shared policies | Investigation-dependent |
 
 The first four are frozen **development adaptations**, not official full-benchmark scores.
+`cognitive_bulk_migration` is an original synthetic qualification workload; it
+measures bounded transformation correctness and cognitive allocation, not broad
+software-engineering quality.
 The counts leave room below 200 for retries/refinements; they assume all five
 conversation attributes are evaluated together per response. Intent examples do
 not require a separate full inference pass. Fixtures are checked in: ordinary runs

@@ -235,3 +235,21 @@ test("Jev HTTP attempt telemetry is minimal, retry-aware, and cannot expose requ
   expect(aggregate(rows).jevAttempts).toBe(2);
   expect(aggregate(rows).jevRetries).toBe(1);
 });
+
+
+test("synthesis calls are tracked separately from semantic judgments", () => {
+  const records = [
+    event(1, 0, "graph.started"),
+    event(2, 10, "node.started", "write", { type: "synth" }),
+    event(3, 15, "synth.request", "write", { model: "fixture/synth" }),
+    event(4, 30, "synth.response", "write", { model: "fixture/synth", usage: { promptTokens: 21, completionTokens: 8 } }),
+    event(5, 40, "node.finished", "write", { result: { type: "synth", status: "done", startedAt: 10, finishedAt: 40 } }),
+    event(6, 50, "graph.finished", undefined, { report: { status: "done" } }),
+  ];
+  const metrics = aggregate(records, { now: 50 });
+  expect(metrics).toMatchObject({
+    steps: 1, synthCalls: 1, synthPromptTokens: 21, synthCompletionTokens: 8,
+    jevCalls: 0, peakParallelism: 1,
+  });
+  expect(metrics.series.at(-1)).toMatchObject({ synthCalls: 1, jevCalls: 0 });
+});

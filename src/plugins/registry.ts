@@ -1,10 +1,11 @@
 import Ajv from "ajv";
 import { readdir, mkdir, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
 import { runCommand, type CommandOptions } from "../core/process";
+import { resolveWithinWorkspace } from "../core/security.ts";
 
 export interface PluginContext {
   cwd: string;
@@ -97,7 +98,7 @@ export class ExtractorRegistry {
       cwd: options.cwd, signal: options.signal,
       exec: (script, extra = {}) => {
         options.onActivity({ operation: "exec", script, extractor: name });
-        return runCommand({ ...extra, script, cwd: extra.cwd ? resolve(options.cwd, extra.cwd) : options.cwd, signal: options.signal, outputPrefix: join(options.artifactDir, `plugin-${randomUUID()}`) });
+        return runCommand({ ...extra, script, cwd: extra.cwd ? resolveWithinWorkspace(options.cwd, extra.cwd) : options.cwd, signal: options.signal, outputPrefix: join(options.artifactDir, `plugin-${randomUUID()}`) });
       },
       fetch: async (url, init = {}) => {
         options.onActivity({ operation: "fetch", url, extractor: name });

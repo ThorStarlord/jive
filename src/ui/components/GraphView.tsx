@@ -164,9 +164,11 @@ function printable(value: unknown): string {
 export function failureCopyText(node: GraphNode): string {
   const response = node.result?.output !== undefined
     ? printable(node.result.output)
-    : node.jevResponses.length > 0
-      ? printable(node.jevResponses[node.jevResponses.length - 1]!.data)
-      : node.output.trim();
+    : node.synthResponses.length > 0
+      ? printable(node.synthResponses[node.synthResponses.length - 1]!.data)
+      : node.jevResponses.length > 0
+        ? printable(node.jevResponses[node.jevResponses.length - 1]!.data)
+        : node.output.trim();
   return [node.error, response].filter((part): part is string => Boolean(part)).join("\n\n");
 }
 

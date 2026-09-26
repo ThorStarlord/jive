@@ -45,4 +45,15 @@ test("behavior checks distinguish semantic continuations from judgments returned
   delete rootMerge.templates!.rate!.nodes.save;
   rootMerge.templates!.rate!.output = { $ref: "/nodes/judge/output/answers" };
   expect(hasSemanticContinuation(rootMerge)).toBe(true);
+  const synthContinuation = structuredClone(SEMANTIC_BRANCH_EXAMPLE) as any;
+  synthContinuation.nodes.synth = {
+    type: "synth",
+    needs: ["route"],
+    task: "Write a bounded response for the selected route.",
+    input: { $ref: "/nodes/route/output/answers/team/choice" },
+  };
+  delete synthContinuation.nodes.billing;
+  delete synthContinuation.nodes.technical;
+  delete synthContinuation.nodes.review;
+  expect(hasSemanticContinuation(synthContinuation)).toBe(true);
 });
