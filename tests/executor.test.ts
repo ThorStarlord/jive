@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { executeGraph } from "../src/core/executor";
 import { ExtractorRegistry } from "../src/plugins/registry";
-import type { Graph, JevAdapter, JevRequest, ExecutionEvent } from "../src/core/types";
+import type { Graph, JevAdapter, JevRequest, ExecutionEvent, SynthAdapter } from "../src/core/types";
 
 const directories: string[] = [];
 async function cwd() { const path = await mkdtemp(join(tmpdir(), "jev-executor-")); directories.push(path); return path; }
@@ -185,4 +185,71 @@ test("a report carries failure evidence inline, names each blocker, and reports 
   expect(result.reason).toContain("Command exited with 1");
   expect(preview("ordered").status).toBe("done");
   expect(preview("independent").status).toBe("done");
+});
+
+
+test("synth receives only resolved bounded evidence and records model provenance", async () => {
+  const events: ExecutionEvent[] = [];
+  const requests: any[] = [];
+  const adapter: SynthAdapter = {
+    async generate(request) {
+      requests.push(request);
+      return {
+        model: "fixture/synth",
+        provider: "fixture",
+        text: '{"patch":"replace prisma call"}',
+        json: { patch: "replace prisma call" },
+        usage: { promptTokens: 20, completionTokens: 5, totalTokens: 25, cachedTokens: 0, cacheWriteTokens: 0 },
+      };
+    },
+  };
+  const graph: Graph = {
+    version: 1,
+    label: "bounded synthesis",
+    context: { target: { path: "src/db.ts", excerpt: "return prisma.user.findMany()" } },
+    nodes: {
+      write: {
+        type: "synth",
+        task: "Rewrite only the supplied excerpt to use Drizzle.",
+        input: { $ref: "/context/target" },
+        outputFormat: "json",
+        maxOutputTokens: 512,
+      },
+    },
+    returns: ["write"],
+  };
+  const result = await executeGraph(graph, { cwd: await cwd(), synth: adapter, onEvent: event => events.push(event) });
+  expect(result.status).toBe("done");
+  expect(requests).toEqual([{
+    task: "Rewrite only the supplied excerpt to use Drizzle.",
+    input: { path: "src/db.ts", excerpt: "return prisma.user.findMany()" },
+    outputFormat: "json",
+    maxOutputTokens: 512,
+  }]);
+  expect((result.requested.write?.output as any).json).toEqual({ patch: "replace prisma call" });
+  expect(events.find(event => event.type === "synth.request")?.data).toMatchObject({ outputFormat: "json", maxOutputTokens: 512 });
+  expect(events.find(event => event.type === "synth.response")?.data).toMatchObject({ model: "fixture/synth", provider: "fixture" });
+});
+
+test("synth budget is graph-wide across foreach expansion", async () => {
+  let calls = 0;
+  const adapter: SynthAdapter = {
+    async generate() {
+      calls++;
+      await Bun.sleep(20);
+      return { model: "fixture/synth", text: "ok" };
+    },
+  };
+  const graph: Graph = {
+    version: 1,
+    label: "synth budget",
+    nodes: {},
+    limits: { maxSynthCalls: 2 },
+    groups: { batch: { kind: "foreach", items: ["a", "b", "c"], template: "write", maxItems: 3, concurrency: 1 } },
+    templates: { write: { nodes: { generate: { type: "synth", task: "Echo the supplied item.", input: { $ref: "/input" } } } } },
+  };
+  const result = await executeGraph(graph, { cwd: await cwd(), synth: adapter });
+  expect(result.status).toBe("cancelled");
+  expect(calls).toBe(2);
+  expect(result.reason).toContain("Synthesis request budget (2) exhausted");
 });
