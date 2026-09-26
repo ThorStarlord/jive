@@ -29,7 +29,18 @@ export interface JevNode extends Common {
   accept?: Condition;
   select?: Record<string, { from: Expression; key: Expression }>;
 }
-export type Node = BashNode | JevNode;
+export interface SynthNode extends Common {
+  type: "synth";
+  /** Bounded generation objective. It may reference prior graph outputs. */
+  task: Expression;
+  /** Explicit evidence/context supplied to the generator; synth nodes have no tools. */
+  input: Expression;
+  model?: string;
+  effort?: string;
+  outputFormat?: "text" | "json";
+  maxOutputTokens?: number;
+}
+export type Node = BashNode | JevNode | SynthNode;
 export interface ForeachGroup extends Common {
   kind: "foreach";
   items: Expression;
@@ -58,12 +69,12 @@ export interface Graph extends GraphBody {
   limits?: Partial<Limits>;
   returns?: string[];
 }
-export interface Limits { concurrency: number; timeoutMs: number; maxJevCalls: number }
+export interface Limits { concurrency: number; timeoutMs: number; maxJevCalls: number; maxSynthCalls: number }
 export type NodeStatus = "pending" | "running" | "done" | "failed" | "yielded" | "blocked" | "skipped" | "cancelled" | "exhausted";
 export interface NodeResult {
   id: string;
   label: string;
-  type: "bash" | "jev" | "foreach" | "repeat";
+  type: "bash" | "jev" | "synth" | "foreach" | "repeat";
   status: NodeStatus;
   output?: unknown;
   error?: string;
@@ -75,7 +86,7 @@ export interface ExecutionEvent {
   sequence: number;
   time: number;
   graphId: string;
-  type: "graph.building" | "graph.preview" | "graph.building.finished" | "graph.started" | "graph.finished" | "node.created" | "node.started" | "node.finished" | "node.output" | "edge.ready" | "plugin.activity" | "jev.request" | "jev.response";
+  type: "graph.building" | "graph.preview" | "graph.building.finished" | "graph.started" | "graph.finished" | "node.created" | "node.started" | "node.finished" | "node.output" | "edge.ready" | "plugin.activity" | "jev.request" | "jev.response" | "synth.request" | "synth.response";
   nodeId?: string;
   data: Record<string, unknown>;
 }
@@ -91,6 +102,28 @@ export interface GraphReport {
 export interface JevRequest { model?: string; state: unknown; questions: Record<string, unknown> }
 export interface JevResponse { model: string; answers: Record<string, any>; usage?: Record<string, number> }
 export interface JevAdapter { evaluate(request: JevRequest, signal?: AbortSignal): Promise<JevResponse> }
+export interface SynthRequest {
+  model?: string;
+  task: string;
+  input: unknown;
+  outputFormat: "text" | "json";
+  maxOutputTokens: number;
+  effort?: string;
+}
+export interface SynthResponse {
+  model: string;
+  provider?: string;
+  text: string;
+  json?: unknown;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    cachedTokens: number;
+    cacheWriteTokens: number;
+  };
+}
+export interface SynthAdapter { generate(request: SynthRequest, signal?: AbortSignal): Promise<SynthResponse> }
 
 // The planner and UI communicate through this small, renderer-independent API.
 /** `thinking` carries the planner's reasoning for a round; it renders dimmed. */
