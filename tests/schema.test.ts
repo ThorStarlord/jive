@@ -37,11 +37,13 @@ describe("validation messages", () => {
       .toBe('Invalid graph: /nodes/a is missing required property "script"');
     expect(rejection({ version: 1, label: "x", nodes: { a: { type: "jev", state: {} } } }))
       .toBe('Invalid graph: /nodes/a is missing required property "questions"');
+    expect(rejection({ version: 1, label: "x", nodes: { a: { type: "synth", task: "write" } } }))
+      .toBe('Invalid graph: /nodes/a is missing required property "input"');
   });
 
   test("names the discriminator options when a node type is unknown", () => {
     expect(rejection({ version: 1, label: "x", nodes: { a: { type: "shell", script: "ls" } } }))
-      .toBe('Invalid graph: /nodes/a/type must be one of "bash", "jev" (received the string "shell")');
+      .toBe('Invalid graph: /nodes/a/type must be one of "bash", "jev", "synth" (received the string "shell")');
     expect(rejection({ version: 1, label: "x", nodes: {}, groups: { g: { template: "t" } }, templates: { t: { nodes: {} } } }))
       .toBe('Invalid graph: /groups/g/kind must be one of "foreach", "repeat" (received nothing)');
   });
@@ -118,7 +120,7 @@ describe("tool parameter schema", () => {
   test("fixed values are enums with a type", () => {
     const root = graphToolParameters.properties as Record<string, any>;
     expect(root.version).toMatchObject({ type: "integer", enum: [1] });
-    expect(root.nodes.additionalProperties.properties.type).toMatchObject({ type: "string", enum: ["bash", "jev"] });
+    expect(root.nodes.additionalProperties.properties.type).toMatchObject({ type: "string", enum: ["bash", "jev", "synth"] });
     expect(root.groups.additionalProperties.properties.kind).toMatchObject({ type: "string", enum: ["foreach", "repeat"] });
   });
 
