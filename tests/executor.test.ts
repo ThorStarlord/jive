@@ -253,3 +253,88 @@ test("synth budget is graph-wide across foreach expansion", async () => {
   expect(calls).toBe(2);
   expect(result.reason).toContain("Synthesis request budget (2) exhausted");
 });
+
+
+test("ambient secrets are not inherited by graph commands", async () => {
+  const previous = process.env.JIVE_TEST_SECRET_TOKEN;
+  process.env.JIVE_TEST_SECRET_TOKEN = "must-not-leak";
+  try {
+    const result = await executeGraph({
+      version: 1,
+      label: "secret boundary",
+      nodes: { check: { type: "bash", script: "printenv JIVE_TEST_SECRET_TOKEN || printf unset" } },
+      returns: ["check"],
+    }, { cwd: await cwd() });
+    expect((result.requested.check?.output as any).stdout).toBe("unset");
+  } finally {
+    if (previous === undefined) delete process.env.JIVE_TEST_SECRET_TOKEN;
+    else process.env.JIVE_TEST_SECRET_TOKEN = previous;
+  }
+});
+
+test("declarative cwd cannot escape the session workspace", async () => {
+  const directory = await cwd();
+  const result = await executeGraph({
+    version: 1,
+    label: "cwd boundary",
+    nodes: { escape: { type: "bash", cwd: "..", script: "touch should-not-exist" } },
+    returns: ["escape"],
+  }, { cwd: directory });
+  expect(result.status).toBe("partial");
+  expect(result.requested.escape?.error).toContain("escapes the session workspace");
+  await expect(access(join(directory, "..", "should-not-exist"))).rejects.toThrow();
+});
+
+test("host authorization can deny a leaf before side effects begin", async () => {
+  const directory = await cwd();
+  const seen: any[] = [];
+  const result = await executeGraph({
+    version: 1,
+    label: "authority",
+    nodes: { mutate: { type: "bash", script: "touch denied-write" } },
+    returns: ["mutate"],
+  }, {
+    cwd: directory,
+    authorize: request => {
+      seen.push(request);
+      throw new Error("policy denied workspace mutation");
+    },
+  });
+  expect(result.status).toBe("partial");
+  expect(result.requested.mutate?.error).toContain("policy denied");
+  expect(seen).toHaveLength(1);
+  expect(seen[0]).toMatchObject({ nodeId: "mutate", type: "bash", cwd: directory });
+  await expect(access(join(directory, "denied-write"))).rejects.toThrow();
+});
+
+test("foreach runs bounded synthesis in parallel while preserving item order", async () => {
+  let active = 0, peak = 0;
+  const adapter: SynthAdapter = {
+    async generate(request) {
+      active++;
+      peak = Math.max(peak, active);
+      const input = String(request.input);
+      await Bun.sleep(input === "a" ? 40 : 10);
+      active--;
+      return { model: "fixture/synth", text: input.toUpperCase() };
+    },
+  };
+  const graph: Graph = {
+    version: 1,
+    label: "parallel synth",
+    nodes: {},
+    limits: { concurrency: 2 },
+    groups: { batch: { kind: "foreach", items: ["a", "b", "c"], template: "write", maxItems: 3, concurrency: 3 } },
+    templates: {
+      write: {
+        nodes: { generate: { type: "synth", task: "Uppercase the supplied value.", input: { $ref: "/input" } } },
+        output: { $ref: "/nodes/generate/output/text" },
+      },
+    },
+    returns: ["batch"],
+  };
+  const result = await executeGraph(graph, { cwd: await cwd(), synth: adapter });
+  expect(result.status).toBe("done");
+  expect(peak).toBe(2);
+  expect((result.requested.batch?.output as any).items.map((item: any) => item.output)).toEqual(["A", "B", "C"]);
+});
