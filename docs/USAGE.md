@@ -3,7 +3,9 @@
 This guide covers the interactive terminal UI, sessions, headless commands, and
 per-project configuration. The [overview](README.md) has installation and a
 short tour; [GRAPH_CONTRACT.md](GRAPH_CONTRACT.md) describes the graphs the
-planner writes; [CONTEXT.md](CONTEXT.md) covers context and compaction.
+planner writes; [COGNITIVE_DELEGATION.md](COGNITIVE_DELEGATION.md) describes
+reasoning/judgment/synthesis responsibilities; [CONTEXT.md](CONTEXT.md) covers
+context and compaction.
 
 ## Working directory and credentials
 
@@ -17,9 +19,10 @@ further up the tree, and finally the `.env` in the Jive checkout. A project can
 therefore override the global keys with its own `.env`.
 
 ```dotenv
-OPENROUTER_API_KEY=...   # planner model
+OPENROUTER_API_KEY=...   # planner and bounded Synth model requests
 JEV_API_TOKEN=...        # Jev decision service, used by `jev` nodes
-OPENROUTER_MODEL=...     # optional; default google/gemini-3.8-flash
+OPENROUTER_MODEL=...     # optional planner default: google/gemini-3.8-flash
+JIVE_SYNTH_MODEL=...     # optional Synth default: deepseek/deepseek-v4-flash
 JEV_MODEL=...            # optional; default jev-1.13.0
 ```
 
@@ -32,8 +35,8 @@ effect in a new session (`/new`). Project skill metadata is snapshotted the same
 way; see [Project skills](#project-skills).
 
 Every planning request also receives runtime facts: the session cwd, runtime and
-contract versions, the configured Jev model and whether credentials are present
-(never their values), execution limits, and graph replay support.
+contract versions, configured Jev/Synth models and whether credentials are
+present (never their values), execution limits, and graph replay support.
 
 ## The interface
 
@@ -70,7 +73,9 @@ Type `/` for a searchable command selector.
 Graph definitions appear as building nodes while the planner writes them, and
 real execution events update those same nodes. Completed nodes and satisfied
 edges turn green; failures and handoffs are yellow; blocked work is grey.
-Completed Jev nodes are purple and bash nodes green.
+Completed Jev nodes are purple; Bash and Synth completions use the normal
+successful-node treatment. Synth request/response provenance remains inspectable
+in the graph evidence.
 
 Loops are drawn open and cyclic: a `foreach` (`≡`) or `repeat` (`↻`) row shows
 its template body once beneath it, bracketed by a loop-back lane, and every pass
@@ -104,6 +109,22 @@ attempts with exponential backoff and jitter, honouring `Retry-After`. A retry
 replays the whole request, so it only happens while nothing of the attempt has
 reached the transcript. Once reasoning, an answer, or a tool call has streamed,
 the failure is reported and the planner decides what to do.
+
+### Execution authority and child credentials
+
+Bash nodes and extractor subprocesses inherit ordinary process configuration such
+as PATH, HOME, locale, and proxies, but ambient credential-like variables (API
+keys, tokens, secrets, passwords, private keys) are removed before spawning. A
+graph can still receive an explicit value through its own `env` binding.
+
+Declarative Bash/extractor `cwd` values must resolve inside the session workspace.
+This is a path-integrity guard, **not a shell sandbox**: a script can still navigate
+or access the network unless the embedding host provides stronger isolation.
+
+Embedders can supply `ExecuteOptions.authorize`. Jive calls it before each Bash,
+Jev, or Synth leaf begins; throwing/rejecting denies that leaf before its command
+or remote request starts. The default CLI currently supplies no restrictive
+policy, so stronger authority policy remains a host responsibility.
 
 ## Sessions
 
@@ -233,7 +254,10 @@ export default {
 The contract also accepts `configSchema` and `examples`. Plugins can use
 `ctx.exec`, `ctx.fetch`, `ctx.artifact`, `ctx.log`, `ctx.cwd`, and `ctx.signal`.
 Plugin code runs in the agent process and must cooperate with cancellation; it
-is not sandboxed. Built-ins are `json`, `lines`, `rg-matches`, and `fetch-text`.
+is not sandboxed. Extractor subprocess helpers reject an explicit cwd outside the
+session workspace, and child commands do not inherit ambient credential-like
+environment variables, but the plugin module itself remains trusted in-process
+code. Built-ins are `json`, `lines`, `rg-matches`, and `fetch-text`.
 See [examples/word-records.ts](../examples/word-records.ts) for a template.
 
 ## Planner evaluation
