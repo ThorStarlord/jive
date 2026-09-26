@@ -1,7 +1,8 @@
 # Graph-driven terminal agent
 
-Status: first runnable implementation. Confirmed decisions below reflect the
-discussion; evaluation proposals remain future work. See
+Status: runnable graph agent under active construction. Confirmed decisions below
+reflect the implemented contract; qualification proposals remain future work unless
+backed by retained Taskground/CI evidence. See
 docs/README.md, the executable examples, and `--schema` for the runnable contract.
 
 ## Objective
@@ -38,7 +39,11 @@ sequential where their data dependencies require it.
   a whole value; null deletes) and executes the result at once, so a large graph
   is fixed without being resent.
 - Input is declarative JSON with explicit references.
-- The two executable node types are `bash` and `jev`.
+- The executable node types are `bash`, `jev`, and bounded tool-less `synth`.
+- `synth` is not a sub-agent: it receives only an explicit task and graph-resolved
+  evidence, has no tools, and cannot perform independent repository reconnaissance.
+- Novel strategy, architecture, unexpected diagnosis, and new rubrics remain
+  planner responsibilities; bounded generation over known targets belongs in Synth.
 - Branching, parallel execution, bounded loops, and dynamic expansion are in
   scope from the first version.
 - Loops and parallel workloads are normal supported execution patterns; the
@@ -50,6 +55,26 @@ sequential where their data dependencies require it.
   Graphs may declare recovery branches or request a global stop.
 - If a Jev decision fails its acceptance criteria, return to the main LLM by
   default. A graph can explicitly provide a retry or evidence-gathering branch.
+
+### Cognitive delegation
+
+Use cognitive cost according to work type rather than file count:
+
+```text
+novel reasoning          -> planner
+deterministic scale      -> bash / extractors
+bounded semantic choice  -> jev
+bounded generation       -> synth
+execution verification   -> bash / host
+novel exception          -> planner
+```
+
+The intended invariant is that frontier reasoning scales with decision novelty,
+not with repository or transformation volume. Known continuations should remain
+inside a graph. Synth may fan out through foreach when targets are independently
+owned; applying generated edits remains a separate effectful execution step.
+
+See [docs/COGNITIVE_DELEGATION.md](docs/COGNITIVE_DELEGATION.md).
 
 ### Extractor plugins
 
@@ -135,8 +160,8 @@ be explicit in the schema.
 ### Expansion and loops
 
 Provide structural constructs for per-item template expansion and bounded
-repetition. They do not add new executable node types. A template can contain
-bash and Jev nodes, references, branches, and further bounded structure.
+repetition. They do not add new executable node types. A template can contain Bash, Jev, and Synth nodes, references, branches, and
+further bounded structure.
 
 There is no graph-wide node-count cap. Defaults are six concurrent leaf
 executions, five minutes per graph, and 100 Jev calls. Graphs can request higher
@@ -298,8 +323,11 @@ distinct from re-executing commands or plugins.
 
 - Measure task success, latency, cost, and planner cache reuse on real tasks.
 - Tune graph limits, preview sizes, and context estimates using those results.
+- Measure planner turns, Jev calls, Synth calls, verification outcomes, and
+  frontier re-entry per completed transformation.
 - Evaluate graph readability at large expansion sizes and narrow terminal widths.
-- Decide whether plugins need process isolation beyond cooperative cancellation.
+- Isolate plugin execution beyond cooperative cancellation before treating
+  extractors as an untrusted extension boundary.
 
 The runtime contract is in [docs/GRAPH_CONTRACT.md](docs/GRAPH_CONTRACT.md).
 
@@ -307,6 +335,8 @@ The runtime contract is in [docs/GRAPH_CONTRACT.md](docs/GRAPH_CONTRACT.md).
 
 Use representative tasks with verifiable outcomes. Compare ordinary main-LLM
 tool loops, batching with deterministic conditions, and graphs with Jev
-decisions. Track task success, elapsed time including planning, model cost,
-unnecessary actions, and handoff frequency. Fewer planner turns alone do not
-establish that the architecture is better.
+decisions. Track task success, elapsed time including planning, model cost, cognitive
+allocation (planner/Jev/Synth/deterministic work), unnecessary actions, verification
+outcomes, and handoff frequency. Fewer planner turns alone do not establish that
+the architecture is better; the stronger hypothesis is useful work scaling without
+frontier reasoning scaling proportionally.
