@@ -41,12 +41,12 @@ curl -fsSL https://raw.githubusercontent.com/merijjeyn/jive/main/install.sh | sh
 |  | Codex | 6m 00s | 10 | 11 | 0 | 8,064 |  |
 |  | Claude Code | 3m 04s | 21 | 22 | 0 | 19,253 |  |
 
-As you can see, we are much better in terms of speed and token efficiency compared to Codex and Claude Code, even on tasks that doesn't require Jev calls. 
+These retained runs are promising evidence for Jive's latency and token-efficiency thesis on the listed tasks. They are development comparisons, not a general quality ranking; task definitions, source revisions, and verification details live in Taskground. 
 
 -------
 
 It is generally not a good idea to fight against a models training, and there are certain tasks that codex, claude code or your favorite agent is better for. **BUT:**
-- I argue it is already extremely useful in certain usecases, and surprisingly more efficient with on par quality on most daily tasks of an engineer.
+- I argue it is already useful for workloads where graph execution can replace repeated planner/tool turns. Broader quality parity across daily engineering work remains a qualification question rather than a benchmark-table conclusion.
 - There is a direct corrolation with the intelligence index of a model, and how effectively it can utilize jive. As the models get better, and System One Models get better, and we slowly get into the training set, the gap will be undeniable
 - It is a great core to improve e2e latency and cost for a lot of enterprise usecases like customer support, targeted assistants for lawyers, internal analytics agents etc. without compromising on quality. 
 
@@ -69,7 +69,9 @@ I know its a bold statement. I'm not sure if this is it. But I know its a step i
 - [Overview and getting started](docs/README.md): what Jive is, installation, quick start, project configuration, command line, development
 - [Using Jive](docs/USAGE.md): interface, sessions, headless commands, skills, extractors
 - [Graph contract](docs/GRAPH_CONTRACT.md): the graph language the planner writes
+- [Cognitive delegation](docs/COGNITIVE_DELEGATION.md): planner vs recon vs Jev vs bounded Synth responsibilities
 - [Planner context](docs/CONTEXT.md): planner context, compaction, and Jev input limits
+- [Current status](STATUS.md) and [roadmap](ROADMAP.md): construction state, claim ceiling, and next frontiers
 - [Design](DESIGN.md): architecture and confirmed design decisions
 - [Taskground](taskground/README.md), and the [planner evaluation guide](evals/planner/README.md)
 
