@@ -9,8 +9,9 @@ import { runCommand, type CommandResult } from "./process";
 import { changesSince, snapshotWorkingTree } from "./file-changes";
 import { ExtractorRegistry } from "../plugins/registry";
 import { JevAnswerError, JevClient, validateAnswer, validateQuestions } from "../jev/client";
-import { DEFAULT_GRAPH_LIMITS } from "./runtime-contract.ts";
-import type { ExecutionEvent, Graph, GraphBody, GraphReport, Group, JevAdapter, JevResponse, Limits, Node, NodeResult } from "./types";
+import { OpenRouterSynthClient } from "../synth/client.ts";
+import { DEFAULT_GRAPH_LIMITS, DEFAULT_SYNTH_MAX_OUTPUT_TOKENS, MAX_SYNTH_INPUT_TOKENS } from "./runtime-contract.ts";
+import type { ExecutionEvent, Graph, GraphBody, GraphReport, Group, JevAdapter, JevResponse, Limits, Node, NodeResult, SynthAdapter, SynthResponse } from "./types";
 
 class Semaphore {
   private used = 0;
@@ -37,6 +38,7 @@ export interface ExecuteOptions {
   updates?: AsyncIterable<Graph>;
   artifactRoot?: string;
   jev?: JevAdapter;
+  synth?: SynthAdapter;
   plugins?: ExtractorRegistry;
   signal?: AbortSignal;
   onEvent?: (event: ExecutionEvent) => void;
@@ -70,7 +72,8 @@ export async function executeGraph(input: unknown, options: ExecuteOptions): Pro
   const records = new Map<string, NodeResult>();
   const plugins = options.plugins ?? await ExtractorRegistry.load(options.cwd);
   const jev = options.jev ?? new JevClient();
-  let sequence = 0, jevCalls = 0;
+  const synth = options.synth ?? new OpenRouterSynthClient();
+  let sequence = 0, jevCalls = 0, synthCalls = 0;
   let stoppingReason: string | undefined;
   const emit = (type: ExecutionEvent["type"], data: Record<string, unknown>, nodeId?: string) => {
     const event: ExecutionEvent = { sequence: ++sequence, time: Date.now(), graphId, type, nodeId, data };
@@ -210,7 +213,7 @@ export async function executeGraph(input: unknown, options: ExecuteOptions): Pro
           if (output.stdoutTruncated) throw new Error("JSON output exceeds inline capture size; narrow the producer output");
           output.json = JSON.parse(output.stdout);
         }
-      } else {
+      } else if (def.type === "jev") {
         const prepared: Record<string, unknown> = Object.create(null);
         const local = { ...scope, prepared };
         for (const step of def.prepare ?? []) {
@@ -246,6 +249,36 @@ export async function executeGraph(input: unknown, options: ExecuteOptions): Pro
           selected[name] = from[key];
         }
         result.output = { ...answer, prepared, selected };
+      } else {
+        const task = resolve(def.task, scope);
+        if (typeof task !== "string" || !task.trim()) throw new Error("synth task must resolve to a non-empty string");
+        const input = resolve(def.input, scope);
+        const request = {
+          ...(def.model ? { model: def.model } : {}),
+          task,
+          input,
+          outputFormat: def.outputFormat ?? "text" as const,
+          maxOutputTokens: def.maxOutputTokens ?? DEFAULT_SYNTH_MAX_OUTPUT_TOKENS,
+          ...(def.effort ? { effort: def.effort } : {}),
+        };
+        if (++synthCalls > limits.maxSynthCalls) {
+          stop(`Synthesis request budget (${limits.maxSynthCalls}) exhausted`);
+          throw new Error(stoppingReason);
+        }
+        const estimatedInputTokens = Math.ceil(JSON.stringify({ task, input }).length / 3);
+        if (estimatedInputTokens > MAX_SYNTH_INPUT_TOKENS) {
+          throw new Error(`Estimated synth input exceeds ${MAX_SYNTH_INPUT_TOKENS} tokens; narrow the evidence before synthesis`);
+        }
+        emit("synth.request", { ...request, estimatedInputTokens }, result.id);
+        let answer: SynthResponse;
+        try {
+          answer = await synth.generate(request, signal);
+        } catch (error) {
+          emit("synth.response", { error: error instanceof Error ? error.message : String(error) }, result.id);
+          throw error;
+        }
+        emit("synth.response", { ...answer }, result.id);
+        result.output = answer;
       }
     } finally { release(); }
   }
