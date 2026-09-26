@@ -1,6 +1,6 @@
 # Graph contract
 
-Status: first implementation. The executable schema and scheduler are in
+Status: implemented runtime contract. The executable schema and scheduler are in
 src/core/. Confirmed requirements live in [DESIGN.md](../DESIGN.md); `--schema`
 and examples define the precise implemented JSON surface.
 
@@ -10,7 +10,7 @@ One `execute_graph` invocation describes a versioned graph with a label, context
 executable nodes, reusable templates, structural expansion/repetition blocks,
 limits, and a declaration of full results requested by the planner.
 
-`bash` and `jev` remain the only executable node types. Per-item expansion and
+`bash`, `jev`, and `synth` are the executable node types. Per-item expansion and
 repetition are structural groups containing those nodes. They can be displayed
 as expandable groups in the UI without becoming extra LLM-facing tools.
 
@@ -111,6 +111,26 @@ Independent questions using the same state may share one Jev request. Questions
 that need a preceding answer require a subsequent execution with that answer in
 their state.
 
+## Bounded synthesis
+
+A `synth` node performs tool-less bounded generation. It receives a generation
+`task` and explicit `input` evidence resolved from the current graph. It may
+choose a model/effort, `text` or `json` output, and an output-token ceiling.
+
+Synth has no tool schema and no independent repository access. It cannot search
+for missing context, run commands, or browse. A caller that needs additional
+evidence must obtain it in earlier graph nodes or return to the planner. Every
+request/response records the resolved input, requested/resolved model, provider,
+usage, and output in execution events/artifacts.
+
+`foreach` can instantiate independent Synth work concurrently under the same
+global leaf semaphore. Generated text does not mutate the workspace by itself;
+applying a patch or writing a file remains an explicit Bash/runtime operation.
+This keeps generation separate from execution authority.
+
+See [COGNITIVE_DELEGATION.md](COGNITIVE_DELEGATION.md) for the reasoning,
+judgment, synthesis, verification, and escalation responsibilities.
+
 ## Conditions and branches
 
 Use a small declarative predicate vocabulary: comparisons, membership,
@@ -136,7 +156,7 @@ Results retain stable input order and item identities, regardless of completion
 order. Each item has a result envelope, including failures. Collection consumers
 must be able to inspect partial success rather than silently losing failed items.
 
-Nested expansion shares the graph's concurrency, timeout, and Jev-call limits. If an
+Nested expansion shares the graph's concurrency, timeout, Jev-call, and Synth-call limits. If an
 input collection exceeds its declared limit, report that explicitly rather than
 quietly ignoring remaining items. An empty collection produces an empty result
 and no child executions.
@@ -172,8 +192,8 @@ completed. Replaying the event log never reruns commands or plugin operations.
 
 ## Limits
 
-Configure concurrent executions, elapsed time,
-Jev request count, and local loop/expansion limits. Runtime ceilings apply even
+Configure concurrent executions, elapsed time, Jev request count, Synth request
+count, and local loop/expansion limits. Runtime ceilings apply even
 when a submitted graph requests larger values. A reached limit produces a
 recorded stopping reason and preserves partial results.
 
@@ -196,7 +216,8 @@ proposed assembly contract.
 
 Emit events for graph validation/start, expansion, iteration, node readiness and
 start, output chunks, plugin activity through runtime helpers, Jev decisions,
-dependency satisfaction, terminal node states, and final graph outcomes.
+Synth requests/responses, dependency satisfaction, terminal node states, and final
+graph outcomes.
 
 Events drive both the terminal UI and headless observation. Assign stable IDs and
 sequence numbers so a UI can reconstruct execution state from recorded events.
