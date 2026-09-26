@@ -503,7 +503,7 @@ export class OpenRouterClient {
       throw new OpenRouterError("OpenRouter stream ended before a completion marker.", { retryable: true });
     }
     if (finishReason === "length" || finishReason === "content_filter" || finishReason === "error") {
-      throw new OpenRouterError(`OpenRouter completion ended with ${finishReason} before the full tool call was accepted.`);
+      throw new OpenRouterError(`OpenRouter completion ended with ${finishReason} before the requested completion finished.`);
     }
     if (calls.size > 0 && finishReason !== "tool_calls" && finishReason !== "stop") {
       throw new OpenRouterError("OpenRouter did not confirm completion of the tool calls.");
