@@ -116,7 +116,7 @@ selection mode and source hash; later source edits affect only subsequent runs.
 Metrics are derived from saved events and work for live runs and retained history.
 `status RUN_ID --json` also includes them. Jive reports planner requests, executed Bash/Jev/Synth steps, graph outcomes,
 average executed leaf nodes per finished graph, logical Jev evaluations and
-instrumented HTTP attempts/retries, Synth calls, active/peak/average concurrency,
+instrumented HTTP attempts/retries, Synth calls and prompt/output token usage, active/peak/average concurrency,
 repeat iterations and foreach items. Average concurrency is weighted by
 time over graph execution, excluding planner waiting and loop container nodes.
 Streaming graph wrappers are not separate executions. Runtime excludes preparation
@@ -129,8 +129,9 @@ For Cognitive Delegation work, interpret planner turns, Jev calls, and Synth cal
 as separate cognitive allocations rather than interchangeable "LLM calls". A good
 result is not merely fewer calls: correctness/verification must hold while
 transformation volume grows without frontier-planner work growing proportionally.
-Future retained metrics should add planner token usage, Synth token/context usage,
-verification pass rate, and frontier escalations per completed transformation.
+Future retained metrics should add planner token usage, verification pass rate,
+and frontier escalations per completed transformation. Synth prompt/output usage
+is retained directly from each bounded generation response.
 
 ### Optional video recording
 
