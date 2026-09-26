@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { appendFileSync } from "node:fs";
-import { join, resolve as pathResolve } from "node:path";
+import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { dependencies, validateGraph } from "./schema";
 import { resolve, evaluate } from "./expressions";
@@ -11,6 +11,7 @@ import { ExtractorRegistry } from "../plugins/registry";
 import { JevAnswerError, JevClient, validateAnswer, validateQuestions } from "../jev/client";
 import { OpenRouterSynthClient } from "../synth/client.ts";
 import { DEFAULT_GRAPH_LIMITS, DEFAULT_SYNTH_MAX_OUTPUT_TOKENS, MAX_SYNTH_INPUT_TOKENS } from "./runtime-contract.ts";
+import { resolveWithinWorkspace } from "./security.ts";
 import type { ExecutionEvent, Graph, GraphBody, GraphReport, Group, JevAdapter, JevResponse, Limits, Node, NodeResult, SynthAdapter, SynthResponse } from "./types";
 
 class Semaphore {
@@ -31,6 +32,14 @@ class Semaphore {
   }
   private release() { const next = this.queue.shift(); if (next) next(); else this.used--; }
 }
+export interface NodeAuthorizationRequest {
+  graphId: string;
+  nodeId: string;
+  label: string;
+  type: Node["type"];
+  cwd: string;
+  definition: Node;
+}
 export interface ExecuteOptions {
   cwd: string;
   graphId?: string;
@@ -40,6 +49,8 @@ export interface ExecuteOptions {
   jev?: JevAdapter;
   synth?: SynthAdapter;
   plugins?: ExtractorRegistry;
+  /** Optional host policy hook. Throw/reject to deny a leaf before any side effect or remote call begins. */
+  authorize?: (request: NodeAuthorizationRequest) => void | Promise<void>;
   signal?: AbortSignal;
   onEvent?: (event: ExecutionEvent) => void;
   /** Report the working-tree files the run changed on graph.finished. On by default. */
@@ -191,6 +202,16 @@ export async function executeGraph(input: unknown, options: ExecuteOptions): Pro
     return outcome;
   }
   async function leaf(def: Node, result: NodeResult, scope: Record<string, unknown>) {
+    const cwd = def.type === "bash" && def.cwd ? resolveWithinWorkspace(options.cwd, def.cwd) : options.cwd;
+    await options.authorize?.({
+      graphId,
+      nodeId: result.id,
+      label: result.label,
+      type: def.type,
+      cwd,
+      definition: structuredClone(def),
+    });
+    signal.throwIfAborted();
     const release = await semaphore.acquire(signal);
     try {
       result.status = "running"; result.startedAt = Date.now();
@@ -202,7 +223,7 @@ export async function executeGraph(input: unknown, options: ExecuteOptions): Pro
           return [name, String(resolved)];
         }));
         const stdin = resolve(def.stdin, scope);
-        result.output = await runCommand({ script: def.script, cwd: def.cwd ? pathResolve(options.cwd, def.cwd) : options.cwd, env,
+        result.output = await runCommand({ script: def.script, cwd, env,
           stdin: stdin === undefined ? undefined : typeof stdin === "string" ? stdin : JSON.stringify(stdin), signal, timeoutMs: def.timeoutMs,
           outputPrefix: join(directory, `command-${encodeURIComponent(result.id)}`),
           onOutput: (stream, chunk) => emit("node.output", { stream, chunk: chunk.slice(0, 4000), omittedCharacters: Math.max(0, chunk.length - 4000) }, result.id),
