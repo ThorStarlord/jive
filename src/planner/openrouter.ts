@@ -56,8 +56,10 @@ export interface CompleteOptions {
   model: string;
   sessionId: string;
   messages: readonly PlannerMessage[];
-  /** One function definition or several; each becomes a tools[] entry. */
-  toolSchema: Record<string, unknown> | Record<string, unknown>[];
+  /** One function definition or several; omit for a tool-less bounded completion. */
+  toolSchema?: Record<string, unknown> | Record<string, unknown>[];
+  /** Optional provider output-token ceiling, used by bounded synthesis. */
+  maxTokens?: number;
   effort?: string;
   signal?: AbortSignal;
   onContent?: (delta: string) => void;
@@ -361,9 +363,12 @@ export class OpenRouterClient {
           model: options.model,
           session_id: options.sessionId.slice(0, 256),
           messages: options.messages.map((message) => apiMessage(message, options.model)),
-          tools: (Array.isArray(options.toolSchema) ? options.toolSchema : [options.toolSchema])
-            .map((schema) => ({ type: "function", function: schema })),
-          tool_choice: "auto",
+          ...(options.toolSchema ? {
+            tools: (Array.isArray(options.toolSchema) ? options.toolSchema : [options.toolSchema])
+              .map((schema) => ({ type: "function", function: schema })),
+            tool_choice: "auto",
+          } : {}),
+          ...(options.maxTokens ? { max_tokens: options.maxTokens } : {}),
           stream: true,
           stream_options: { include_usage: true },
           provider: { allow_fallbacks: false },
