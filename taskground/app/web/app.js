@@ -462,6 +462,8 @@
       ["Avg graph", decimalMetric(metrics, "avgGraphSize")],
       ["JEV calls", metric(metrics, "jevCalls")],
       ["Synth calls", metric(metrics, "synthCalls")],
+      ["Synth prompt tok", metric(metrics, "synthPromptTokens")],
+      ["Synth output tok", metric(metrics, "synthCompletionTokens")],
       ["JEV attempts", metric(metrics, "jevAttempts")],
       ["JEV retries", metric(metrics, "jevRetries")],
       ["Parallel now", metric(metrics, "currentParallelism")],
