@@ -66,3 +66,33 @@ export const BATCH_EXAMPLE: Graph = {
   },
   returns: ["merge"],
 };
+
+
+export const SYNTH_VERIFICATION_EXAMPLE: Graph = {
+  version: 1,
+  label: "Generate a bounded rewrite and verify it",
+  limits: { maxSynthCalls: 1, maxJevCalls: 0 },
+  context: {
+    target: {
+      path: "src/example.ts",
+      source: "return legacyCall(input);",
+      requirement: "Replace legacyCall with modernCall while preserving the function shape.",
+    },
+  },
+  nodes: {
+    draft: {
+      type: "synth",
+      task: "Return JSON with one field replacement containing only the rewritten source snippet.",
+      input: { $ref: "/context/target" },
+      outputFormat: "json",
+      maxOutputTokens: 512,
+    },
+    verify: {
+      type: "bash",
+      stdin: { $ref: "/nodes/draft/output/json" },
+      outputFormat: "json",
+      script: `python3 -c 'import json,sys; d=json.load(sys.stdin); s=d.get("replacement",""); ok="modernCall(" in s and "legacyCall(" not in s; print(json.dumps({"ok":ok,"reason":"verified" if ok else "rewrite did not satisfy the bounded contract"}))'`,
+    },
+  },
+  returns: ["draft", "verify"],
+};
