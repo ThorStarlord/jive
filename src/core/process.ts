@@ -3,6 +3,7 @@ import { createWriteStream } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { finished } from "node:stream/promises";
 import { DEFAULT_COMMAND_TIMEOUT_MS } from "./runtime-contract.ts";
+import { safeChildEnvironment } from "./security.ts";
 
 export interface CommandOptions {
   script: string; cwd: string; env?: Record<string, string>; stdin?: string;
@@ -22,7 +23,7 @@ export async function runCommand(options: CommandOptions): Promise<CommandResult
     stdinEnv.JIVE_STDIN = `${options.outputPrefix}.stdin`;
     await writeFile(stdinEnv.JIVE_STDIN, options.stdin);
   }
-  const child = spawn("bash", ["-c", options.script], { cwd: options.cwd, env: { ...process.env, ...stdinEnv, ...options.env }, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn("bash", ["-c", options.script], { cwd: options.cwd, env: { ...safeChildEnvironment(), ...stdinEnv, ...options.env }, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"] });
   const files = options.outputPrefix ? { stdout: createWriteStream(`${options.outputPrefix}.stdout`), stderr: createWriteStream(`${options.outputPrefix}.stderr`) } : undefined;
   const capture = { stdout: "", stderr: "", stdoutTruncated: false, stderrTruncated: false };
   const cap = 2 * 1024 * 1024;
