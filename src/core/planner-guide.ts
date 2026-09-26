@@ -1,4 +1,4 @@
-import { BATCH_EXAMPLE, DETERMINISTIC_BRANCH_EXAMPLE, PARALLEL_READS_EXAMPLE, SEMANTIC_BRANCH_EXAMPLE } from "./planner-examples.ts";
+import { BATCH_EXAMPLE, DETERMINISTIC_BRANCH_EXAMPLE, PARALLEL_READS_EXAMPLE, SEMANTIC_BRANCH_EXAMPLE, SYNTH_VERIFICATION_EXAMPLE } from "./planner-examples.ts";
 
 /** Stable, versioned planner instruction text. No per-turn mutable state. */
 export const REFERENCE_EXAMPLE = {version:1,label:"Inspect manifest",nodes:{read:{type:"bash",script:"cat package.json",outputFormat:"json"},show:{type:"bash",env:{NAME:{$ref:"/nodes/read/output/json/name"}},script:`printf '%s' "$NAME"`}},returns:["read","show"]};
@@ -120,4 +120,7 @@ Semantic branching without a planner round between decision and action:
 ${JSON.stringify(SEMANTIC_BRANCH_EXAMPLE)}
 
 Batch judgment, per-item evidence, aggregation and file output:
-${JSON.stringify(BATCH_EXAMPLE)}`;
+${JSON.stringify(BATCH_EXAMPLE)}
+
+Bounded generation followed by deterministic verification:
+${JSON.stringify(SYNTH_VERIFICATION_EXAMPLE)}`;
