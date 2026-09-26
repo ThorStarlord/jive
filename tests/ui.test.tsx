@@ -247,6 +247,25 @@ describe("reduceGraphs", () => {
     expect(g!.reason).toBe("acceptance criteria not met");
   });
 
+  test("keeps bounded synth request and response provenance", () => {
+    const ev = eventFactory("g-synth");
+    const events: ExecutionEvent[] = [
+      ev("graph.started", undefined, { label: "rewrite" }),
+      ev("node.created", "draft", { label: "draft rewrite", type: "synth", needs: [] }),
+      ev("node.started", "draft", { type: "synth" }),
+      ev("synth.request", "draft", { task: "rewrite", input: { source: "old" }, maxOutputTokens: 256 }),
+      ev("synth.response", "draft", { model: "fixture/synth", provider: "fixture", text: "new" }),
+      ev("node.finished", "draft", { result: { id: "draft", label: "draft rewrite", type: "synth", status: "done", output: { text: "new" } } }),
+      ev("graph.finished", undefined, { status: "done" }),
+    ];
+    const [g] = reduceGraphs(events);
+    const draft = g!.nodes.draft!;
+    expect(draft.type).toBe("synth");
+    expect(draft.synthRequests).toHaveLength(1);
+    expect(draft.synthRequests[0]!.data.input).toEqual({ source: "old" });
+    expect(draft.synthResponses[0]!.data).toMatchObject({ model: "fixture/synth", text: "new" });
+  });
+
   test("separates graphs and tolerates events for unknown nodes", () => {
     const events = [...sampleEvents(), ...jevEvents()];
     const ev = eventFactory("g1");
