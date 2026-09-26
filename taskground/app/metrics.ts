@@ -20,6 +20,8 @@ export interface RunMetrics {
   avgGraphSize: number | null;
   jevCalls: number | null;
   synthCalls: number | null;
+  synthPromptTokens: number | null;
+  synthCompletionTokens: number | null;
   jevAttempts: number | null;
   jevRetries: number | null;
   currentParallelism: number | null;
@@ -102,6 +104,7 @@ class MetricReducer {
   readonly sessionGraphs = new Set<string>();
   readonly jevRequests: Array<{ graphId: string; source: EventSource; time: number }> = [];
   readonly synthRequests: Array<{ graphId: string; source: EventSource; time: number }> = [];
+  readonly synthUsage: Array<{ graphId: string; source: EventSource; time: number; promptTokens: number; completionTokens: number }> = [];
   plannerTurns = 0;
   jevAttempts = 0;
   jevRetries = 0;
@@ -142,7 +145,7 @@ class MetricReducer {
     this.lastEventAt = maxDefined(this.lastEventAt, eventTime);
     const relevant = event.type === "graph.started" || event.type === "graph.finished" ||
       event.type === "node.created" || event.type === "node.started" || event.type === "node.finished" ||
-      event.type === "jev.request" || event.type === "synth.request";
+      event.type === "jev.request" || event.type === "synth.request" || event.type === "synth.response";
     if (!relevant) return;
     // Once the durable session has the runtime's graph.started event, its remapped sequence space
     // is authoritative for that graph. Raw events remain retained solely as a fallback.
@@ -180,6 +183,17 @@ class MetricReducer {
     }
     if (event.type === "synth.request") {
       if (eventTime !== undefined) this.synthRequests.push({ graphId: event.graphId, source, time: eventTime });
+      return;
+    }
+    if (event.type === "synth.response") {
+      const usage = record(event.data?.usage) ? event.data.usage : undefined;
+      const promptTokens = finite(usage?.promptTokens), completionTokens = finite(usage?.completionTokens);
+      if (eventTime !== undefined && (promptTokens !== undefined || completionTokens !== undefined)) {
+        this.synthUsage.push({
+          graphId: event.graphId, source, time: eventTime,
+          promptTokens: promptTokens ?? 0, completionTokens: completionTokens ?? 0,
+        });
+      }
       return;
     }
     if (typeof event.nodeId !== "string") return;
@@ -242,6 +256,10 @@ class MetricReducer {
     const synthRequestTimes = this.synthRequests
       .filter(request => selected(request.graphId, request.source) && request.time <= boundary)
       .map(request => request.time);
+    const selectedSynthUsage = this.synthUsage.filter(usage =>
+      selected(usage.graphId, usage.source) && usage.time <= boundary);
+    const synthPromptTokens = selectedSynthUsage.reduce((sum, usage) => sum + usage.promptTokens, 0);
+    const synthCompletionTokens = selectedSynthUsage.reduce((sum, usage) => sum + usage.completionTokens, 0);
     const series = metricSeries(graphIntervals, nodeIntervals, jevRequestTimes, synthRequestTimes);
     const available = this.executionAvailable;
     const telemetry = options.attemptTelemetryAvailable || this.attemptTelemetryAvailable;
@@ -256,6 +274,8 @@ class MetricReducer {
       avgGraphSize: graphSizes.length ? graphSizes.reduce((sum, size) => sum + size, 0) / graphSizes.length : null,
       jevCalls: available ? jevRequestTimes.length : null,
       synthCalls: available ? synthRequestTimes.length : null,
+      synthPromptTokens: available ? synthPromptTokens : null,
+      synthCompletionTokens: available ? synthCompletionTokens : null,
       jevAttempts: telemetry ? this.jevAttempts : null,
       jevRetries: telemetry ? this.jevRetries : null,
       currentParallelism: available ? current : null,
@@ -462,7 +482,7 @@ class NativeReducer {
       elapsedMs, plannerTurns: this.available ? this.plannerTurns : null,
       steps: this.available ? this.steps.size : null,
       graphsStarted: null, graphsCompleted: null, graphsFailed: null, avgGraphSize: null,
-      jevCalls: null, synthCalls: null, jevAttempts: null, jevRetries: null,
+      jevCalls: null, synthCalls: null, synthPromptTokens: null, synthCompletionTokens: null, jevAttempts: null, jevRetries: null,
       currentParallelism: null, peakParallelism: null, avgParallelism: null,
       repeatIterations: null, foreachItems: null, lastEventAt: this.lastEventAt ?? null,
       series: [], available: this.available,
