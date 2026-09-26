@@ -44,7 +44,7 @@ const node = {
     stdin: { description: `bash-only. Text or expression fed to standard input; a referenced array or object arrives as JSON. The same payload is saved to a file whose path is in $JIVE_STDIN, so a heredoc program can read it from there. ${REF_RULE}` },
     timeoutMs: { type: "integer", description: "bash-only. Timeout in milliseconds (1 to 3600000). Default 60000 (60 seconds), also bounded by the graph timeout." },
     acceptedExitCodes: { type: "array", items: { type: "integer" }, description: "bash-only. Exit codes that count as success. Defaults to [0]; use [0,1] for rg or a test run." },
-    outputFormat: { type: "string", enum: ["text", "json"], description: "bash-only. json additionally parses stdout into output.json." },
+    outputFormat: { type: "string", enum: ["text", "json"], description: "bash/synth. For bash, json parses stdout into output.json. For synth, json requires the model response to be one valid JSON value and exposes it as output.json." },
     state: { description: `jev-only, required. The evidence Jev reasons over: source, goal, constraints. ${REF_RULE}` },
     questions: {
       type: "object", description: `jev-only, required. Map of question ID to a question, or a $ref to a question map. IDs carry no meaning: instructions must give the complete question. ${REF_RULE}`,
